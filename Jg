@@ -1,0 +1,404 @@
+--========================================================
+-- D COMBAT - ONE FILE / READY TO RUN
+-- Roblox Studio - สำหรับเกมของคุณเอง
+--========================================================
+
+local Players = game:GetService("Players")
+
+--========================================================
+-- SETTINGS
+--========================================================
+
+local RANGE = 1000
+local DAMAGE = 1000
+local ATTACK_DELAY = 0.1
+
+local GATHER_DISTANCE = 10
+local GATHER_HEIGHT = 0
+
+local ATTACK_MONSTERS = true
+local ATTACK_PLAYERS = true
+local GATHER_MONSTERS = true
+
+--========================================================
+-- STATUS
+--========================================================
+
+local running = true
+local playerLoops = {}
+
+print("========================================")
+print("[D COMBAT] Starting...")
+print("[D COMBAT] Range  :", RANGE)
+print("[D COMBAT] Damage :", DAMAGE)
+print("[D COMBAT] Delay  :", ATTACK_DELAY)
+print("========================================")
+
+--========================================================
+-- CREATE ENEMIES FOLDER IF MISSING
+--========================================================
+
+local Enemies = workspace:FindFirstChild("Enemies")
+
+if not Enemies then
+	Enemies = Instance.new("Folder")
+	Enemies.Name = "Enemies"
+	Enemies.Parent = workspace
+
+	warn("[D COMBAT] Workspace.Enemies was missing.")
+	print("[D COMBAT] Created Workspace.Enemies automatically.")
+end
+
+--========================================================
+-- HELPERS
+--========================================================
+
+local function Safe(callback)
+	local success, err = pcall(callback)
+
+	if not success then
+		warn("[D COMBAT ERROR]", err)
+	end
+
+	return success
+end
+
+local function GetRoot(model)
+	if not model then
+		return nil
+	end
+
+	return model:FindFirstChild("HumanoidRootPart")
+end
+
+local function GetHumanoid(model)
+	if not model then
+		return nil
+	end
+
+	return model:FindFirstChildOfClass("Humanoid")
+end
+
+local function Alive(model)
+	local humanoid = GetHumanoid(model)
+	local root = GetRoot(model)
+
+	if not humanoid then
+		return false
+	end
+
+	if not root then
+		return false
+	end
+
+	if humanoid.Health <= 0 then
+		return false
+	end
+
+	return true
+end
+
+local function Distance(position1, position2)
+	return (position1 - position2).Magnitude
+end
+
+--========================================================
+-- GATHER MONSTERS
+--========================================================
+
+local function Gather(player)
+
+	if not GATHER_MONSTERS then
+		return
+	end
+
+	local character = player.Character
+	local playerRoot = GetRoot(character)
+
+	if not playerRoot then
+		return
+	end
+
+	local monsters = {}
+
+	for _, enemy in ipairs(Enemies:GetChildren()) do
+
+		if enemy:IsA("Model")
+			and enemy ~= character
+			and Alive(enemy) then
+
+			local enemyRoot = GetRoot(enemy)
+
+			if enemyRoot then
+
+				local dist = Distance(
+					playerRoot.Position,
+					enemyRoot.Position
+				)
+
+				if dist <= RANGE then
+					table.insert(monsters, enemy)
+				end
+			end
+		end
+	end
+
+	local count = #monsters
+
+	if count == 0 then
+		return
+	end
+
+	for index, enemy in ipairs(monsters) do
+
+		local angle =
+			((index - 1) / count) * math.pi * 2
+
+		local offset = Vector3.new(
+			math.cos(angle) * GATHER_DISTANCE,
+			GATHER_HEIGHT,
+			math.sin(angle) * GATHER_DISTANCE
+		)
+
+		local targetPosition =
+			playerRoot.Position + offset
+
+		Safe(function()
+
+			enemy:PivotTo(
+				CFrame.lookAt(
+					targetPosition,
+					playerRoot.Position
+				)
+			)
+
+		end)
+	end
+end
+
+--========================================================
+-- ATTACK MONSTERS
+--========================================================
+
+local function AttackMonsters(player)
+
+	if not ATTACK_MONSTERS then
+		return
+	end
+
+	local character = player.Character
+	local playerRoot = GetRoot(character)
+
+	if not playerRoot then
+		return
+	end
+
+	for _, enemy in ipairs(Enemies:GetChildren()) do
+
+		if enemy:IsA("Model")
+			and enemy ~= character
+			and Alive(enemy) then
+
+			local enemyRoot = GetRoot(enemy)
+			local humanoid = GetHumanoid(enemy)
+
+			if enemyRoot and humanoid then
+
+				local dist = Distance(
+					playerRoot.Position,
+					enemyRoot.Position
+				)
+
+				if dist <= RANGE then
+
+					Safe(function()
+						humanoid:TakeDamage(DAMAGE)
+					end)
+
+				end
+			end
+		end
+	end
+end
+
+--========================================================
+-- ATTACK PLAYERS
+--========================================================
+
+local function AttackPlayers(player)
+
+	if not ATTACK_PLAYERS then
+		return
+	end
+
+	local character = player.Character
+	local playerRoot = GetRoot(character)
+
+	if not playerRoot then
+		return
+	end
+
+	for _, target in ipairs(Players:GetPlayers()) do
+
+		if target ~= player then
+
+			local targetCharacter =
+				target.Character
+
+			if targetCharacter
+				and Alive(targetCharacter) then
+
+				local targetRoot =
+					GetRoot(targetCharacter)
+
+				local targetHumanoid =
+					GetHumanoid(targetCharacter)
+
+				if targetRoot and targetHumanoid then
+
+					local dist = Distance(
+						playerRoot.Position,
+						targetRoot.Position
+					)
+
+					if dist <= RANGE then
+
+						Safe(function()
+							targetHumanoid:TakeDamage(DAMAGE)
+						end)
+
+					end
+				end
+			end
+		end
+	end
+end
+
+--========================================================
+-- COMPLETE COMBAT
+--========================================================
+
+local function Combat(player)
+
+	if not player.Parent then
+		return
+	end
+
+	local character = player.Character
+
+	if not character then
+		return
+	end
+
+	if not Alive(character) then
+		return
+	end
+
+	Gather(player)
+	AttackMonsters(player)
+	AttackPlayers(player)
+end
+
+--========================================================
+-- PLAYER LOOP
+--========================================================
+
+local function StartPlayer(player)
+
+	if playerLoops[player] then
+		return
+	end
+
+	playerLoops[player] = true
+
+	task.spawn(function()
+
+		while running
+			and player.Parent
+			and playerLoops[player] do
+
+			Safe(function()
+				Combat(player)
+			end)
+
+			task.wait(ATTACK_DELAY)
+		end
+
+		playerLoops[player] = nil
+	end)
+end
+
+--========================================================
+-- PLAYER JOIN
+--========================================================
+
+Players.PlayerAdded:Connect(function(player)
+
+	print("[D COMBAT] Player detected:", player.Name)
+
+	player.CharacterAdded:Connect(function(character)
+
+		print(
+			"[D COMBAT] Character loaded:",
+			player.Name
+		)
+
+		task.wait(1)
+
+		StartPlayer(player)
+
+	end)
+
+	-- กรณี Character มีอยู่แล้ว
+	if player.Character then
+		task.defer(function()
+			StartPlayer(player)
+		end)
+	end
+
+end)
+
+--========================================================
+-- PLAYER LEAVE
+--========================================================
+
+Players.PlayerRemoving:Connect(function(player)
+
+	playerLoops[player] = nil
+
+	print(
+		"[D COMBAT] Player removed:",
+		player.Name
+	)
+
+end)
+
+--========================================================
+-- START EXISTING PLAYERS
+--========================================================
+
+for _, player in ipairs(Players:GetPlayers()) do
+
+	print(
+		"[D COMBAT] Starting player:",
+		player.Name
+	)
+
+	StartPlayer(player)
+
+end
+
+--========================================================
+-- FINAL STATUS
+--========================================================
+
+print("========================================")
+print("[D COMBAT] READY")
+print("[D COMBAT] AUTO ATTACK : ON")
+print("[D COMBAT] GATHER      : ON")
+print("[D COMBAT] MONSTERS    : ON")
+print("[D COMBAT] PLAYERS     : ON")
+print("[D COMBAT] RANGE       :", RANGE)
+print("[D COMBAT] DAMAGE      :", DAMAGE)
+print("[D COMBAT] DELAY       :", ATTACK_DELAY)
+print("========================================")
